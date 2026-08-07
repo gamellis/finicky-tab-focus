@@ -7,7 +7,11 @@ export default {
   // keepRunning matters for latency: without it Finicky quits after handling a
   // URL, so the next click pays a full app launch and its window steals focus
   // on the way through.
-  options: { keepRunning: true },
+  //
+  // hideIcon drops the menu bar item. Nothing here needs it, and it's one less
+  // thing appearing on a cold start. You lose the Finicky menu; `pkill -x
+  // Finicky` replaces everything it offered.
+  options: { keepRunning: true, hideIcon: true },
 
   defaultBrowser: {
     name: "io.github.gamellis.chrometabfocus",

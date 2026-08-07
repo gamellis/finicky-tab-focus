@@ -103,6 +103,9 @@ default browser in the meantime.
 pkill -x Finicky
 ```
 
+This config sets `hideIcon`, so there's no Finicky menu bar item to reach for —
+`pkill` is the control.
+
 Stop it and stop there — do **not** launch it again. Finicky shows its window
 on every explicit launch, and `open -g -j -a Finicky` is no better than
 `open -a Finicky`; the background and hidden flags make no difference. That
