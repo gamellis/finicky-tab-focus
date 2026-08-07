@@ -10,11 +10,18 @@ link from every app.
 
 Linear links are the one exception: they open in the Linear desktop app.
 
+> **This sees every URL you open.** It has to — it becomes your default browser
+> handler. Everything happens locally: nothing is sent anywhere, nothing is
+> logged, and there is no network code in this repo. The one exception is opt-in
+> and noted under [Editing the config](#editing-the-config) — Finicky's
+> `logRequests` writes every URL you visit to a local file.
+
 ## Requirements
 
-- macOS 14+ (developed on 26.5)
-- Finicky **4.x** — a v3 config has different syntax and fails *silently*
-- Google Chrome — the tab reuse is Chrome-specific (see Limitations)
+- macOS with Chrome and Finicky **4.x** — a v3 config has different syntax and
+  fails *silently*, so `install.sh` refuses to proceed on one
+- Homebrew, only if Finicky isn't already installed
+- Developed on macOS 26.5; no lower bound has been tested
 
 ## Install
 
@@ -22,15 +29,20 @@ Linear links are the one exception: they open in the Linear desktop app.
 ./install.sh
 ```
 
-That installs Finicky if missing, copies the config, builds and registers the
-applet, and prints the two interactive steps it can't do for you: choosing
-Finicky as the default browser, and approving Chrome automation on first click.
+That checks your Chrome and Finicky versions, installs Finicky if it's missing,
+backs up any existing Finicky config, builds and registers the applet, and
+prints the two steps it can't do for you: choosing Finicky as the default
+browser, and approving Chrome automation on first click.
 
-To back out:
+Then:
 
 ```sh
-./uninstall.sh
+./verify.sh
 ```
+
+Every failure mode here is silent, so `verify.sh` exists to turn "links just
+don't do anything" into a specific answer. To back out, `./uninstall.sh` — read
+its first message, the default-browser step has to come first.
 
 ## How it works
 
@@ -43,7 +55,8 @@ everything lands there unless a handler claims it first.
 **ChromeTabFocus** is an AppleScript applet registered as an http/https
 handler. Given a URL it scans every Chrome window for a tab already showing it
 (ignoring trailing slashes), focuses that tab and window if found, and
-otherwise opens a new tab in the front window.
+otherwise opens a new tab in the front window — or a new window, if Chrome has
+none open.
 
 A click therefore crosses two processes before Chrome sees it. Naively that
 cost ~0.6s with a visible focus flash. Three details bring it to ~0.27s:
@@ -57,14 +70,28 @@ cost ~0.6s with a visible focus flash. Three details bring it to ~0.27s:
 
 Finicky's `keepRunning` does the same job on its side.
 
+Both figures are wall-clock from `open <url>` until Chrome's active tab reports
+the target URL, on one machine with ~6 tabs open. Treat them as "the difference
+was obvious", not as a benchmark.
+
 ## Limitations
 
+- **Minimized windows don't work.** If the matching tab is in a minimized
+  window, the click appears to do nothing at all — no new tab, no visible
+  change. The applet selects the right tab but never deminiaturizes. Confirmed,
+  and deliberately not fixed.
+- **Incognito windows participate.** A URL open in an incognito window will
+  raise that window. That's intended here, but it's worth knowing before you
+  click a link from Mail in front of someone.
 - **Chrome only.** Safari's scripting dictionary differs, and Firefox exposes
   no tab-URL scripting at all, so it could never participate.
 - **Links clicked inside an app that opens its own webview never reach
   Finicky**, so they can't be deduplicated.
 - **URLs must match exactly** (modulo trailing slash). Query strings, tracking
   params and anchors all count as different tabs.
+- The applet accepts a URL from **any** app, not just Finicky. Nothing is
+  passed to a shell, so there's no injection surface; an unusual scheme just
+  lands in a new blank tab.
 
 ## Editing the config
 
@@ -83,32 +110,54 @@ window is the flash people mistake for a slow route. Launched by LaunchServices
 to handle a URL, it never shows the window at all, so the next link you click
 brings it back silently.
 
+Editing `chrome-tab-focus.applescript` is different: re-run
+`./install-chrome-tab-focus.sh`, or the old compiled applet keeps handling URLs
+and your change appears to do nothing.
+
 When a rule misbehaves, set `options.logRequests: true`, restart, and read
 `~/Library/Logs/Finicky/*.log` — it records the exact `open` command issued,
-which settles what a rule actually did. Turn it back off afterwards; the log
+which settles what a rule actually did. Turn it back off afterwards; that log
 contains every URL you visit.
 
-### Two v4 API traps
+### Adding your own carve-out
 
-Both fail silently rather than erroring, and both cost hours:
+Handlers are tried in order; the first match wins, and anything unmatched falls
+through to `defaultBrowser`. A handler is just `match` + `browser`:
 
-- `match` and `url` functions receive a **WHATWG `URL` instance** as their
-  first argument, not a `{ url }` wrapper. Destructuring `{ url }` gives
-  `undefined`, and spreading a `URL` gives `{}` — the rule then quietly does
-  nothing.
-- A **handler has no `url` field** — only `match` and `browser`. URL rewriting
+```js
+{
+  match: ({ url }) => url.host === "figma.com",
+  browser: { name: "Figma", appType: "appName" },
+}
+```
+
+Note the `{ url }` destructure — see the trap below before you copy this
+somewhere else.
+
+### Two Finicky v4 traps
+
+Both fail silently rather than erroring:
+
+- **A handler has no `url` field** — only `match` and `browser`. URL rewriting
   belongs in the top-level `rewrite` array, which runs first; handlers then
-  match the already-rewritten URL.
-
-The `url:` rewrite in the shipped Linear handler hits both, and is left in
-place deliberately. See the comment on it.
+  match the already-rewritten URL. Confirmed in Finicky's own
+  `finicky.d.ts`, where `BrowserHandler` is `{ match, browser }`.
+- **The bundled `finicky.d.ts` disagrees with the runtime about `match`.** It
+  declares `(args_0: URL, ...)`, implying a bare WHATWG `URL`, but Finicky
+  4.2.2 actually passes a `{ url }` wrapper — which is why the config here
+  destructures. Verified by routing rather than by reading: `/issue/...`
+  reaches Linear while `/pricing` falls through to Chrome, which can only
+  happen if the destructure works. If a future version drops the wrapper, every
+  Linear link will start opening in Chrome; switch to a bare `url` parameter
+  then.
 
 ## Linear notes
 
 Linear.app ships no `com.apple.developer.associated-domains` entitlement, so a
 universal link can never reach the app directly — only the `linear://` scheme
 can. In practice handing Linear the plain https URL and letting it route
-internally works better than rewriting the scheme ourselves.
+internally works better than rewriting the scheme, so this config doesn't
+rewrite anything.
 
 Linear matches its in-app tabs on the **exact URL**, so a slug-less issue link
 (`/issue/ES-583`) opens a second tab alongside the canonical one
@@ -116,6 +165,9 @@ Linear matches its in-app tabs on the **exact URL**, so a slug-less issue link
 `linear issue view <id> --json` when pasting links. Canonicalising slug-less
 URLs automatically was considered and rejected: the CLI lookup costs ~0.9s per
 click, and links clicked inside Linear never pass through Finicky anyway.
+
+Don't use Linear? Delete the handler between the `---8<---` markers in
+`finicky.js` and every URL goes to Chrome.
 
 ## Rejected approaches
 
@@ -133,14 +185,25 @@ Kept so they don't get re-attempted:
 
 | File                            | Purpose                                          |
 | ------------------------------- | ------------------------------------------------ |
+| `install.sh` / `uninstall.sh`   | Everything, both directions                      |
+| `verify.sh`                     | Diagnose a silent failure                        |
 | `finicky.js`                    | Copied to `~/.config/finicky/finicky.js`         |
 | `chrome-tab-focus.applescript`  | Source for the applet                            |
-| `install-chrome-tab-focus.sh`   | Builds and registers the applet only             |
-| `install.sh` / `uninstall.sh`   | Everything, both directions                      |
+| `install-chrome-tab-focus.sh`   | Builds and registers the applet only; also the edit-test loop |
 
-The applet is built rather than committed: `osacompile` produces the `.app`,
-then the installer patches the bundle id, URL types and `LSUIElement` into its
-`Info.plist`, ad-hoc signs it, and registers it with LaunchServices.
+The applet is built rather than committed: `osacompile` produces the `.app` in
+`~/Applications`, then the installer patches its bundle id, URL types,
+`LSUIElement` and `NSAppleEventsUsageDescription` into `Info.plist`, ad-hoc
+signs it, and registers it with LaunchServices.
+
+Ad-hoc signing has one sharp edge worth knowing: the code identity changes on
+every rebuild, so macOS may re-prompt for Chrome automation after you re-run
+the installer — or, with a stale grant on record, silently deny it. If links
+stop working right after a rebuild:
+
+```sh
+tccutil reset AppleEvents io.github.gamellis.chrometabfocus
+```
 
 ## License
 

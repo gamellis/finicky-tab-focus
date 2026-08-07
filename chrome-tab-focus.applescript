@@ -36,8 +36,19 @@ on focusOrOpen(theURL)
 			set tabURLs to URL of every tab of window wi
 			repeat with ti from 1 to (count of tabURLs)
 				if my normalizeURL(item ti of tabURLs) is wanted then
+					-- KNOWN LIMITATION: this does not deminiaturize. If the
+					-- matching tab lives in a minimized window, the click looks
+					-- like it did nothing at all. Confirmed, deliberately not
+					-- fixed; see the README.
+					--
+					-- try/end try because Chrome's `index` is historically
+					-- unreliable: without it a failure here aborts after the tab
+					-- was selected but before `activate`, so Chrome never comes
+					-- forward and the click silently does nothing.
 					set active tab index of window wi to ti
-					set index of window wi to 1
+					try
+						set index of window wi to 1
+					end try
 					activate
 					return
 				end if

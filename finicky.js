@@ -2,31 +2,6 @@
 // open Chrome tab, and carve out Linear so issues open in the desktop app.
 //
 // Requires Finicky 4.x. A v3 config has different syntax and fails silently.
-//
-// The Linear handler below is optional — delete it if you don't use Linear and
-// every URL goes to Chrome.
-
-// Second path segment of an in-app route: https://linear.app/<workspace>/<route>/...
-const appRoutes = [
-  "issue",
-  "project",
-  "projects",
-  "initiative",
-  "initiatives",
-  "team",
-  "view",
-  "document",
-  "search",
-  "settings",
-  "inbox",
-  "my-issues",
-  "roadmap",
-  "cycle",
-  "label",
-  "profile",
-  "notification",
-];
-
 
 export default {
   // keepRunning matters for latency: without it Finicky quits after handling a
@@ -34,24 +9,36 @@ export default {
   // on the way through.
   options: { keepRunning: true },
 
-  defaultBrowser: { name: "local.chrometabfocus", appType: "bundleId" },
+  defaultBrowser: {
+    name: "io.github.gamellis.chrometabfocus",
+    appType: "bundleId",
+  },
 
   handlers: [
+    // ---8<--- Linear carve-out. Delete this whole entry if you don't use
+    // Linear, and every URL goes to Chrome.
     {
       match: ({ url }) => {
-        if (url.host !== "linear.app") return false;
+        // Finicky 4.2.2 passes a { url } wrapper here, despite the bundled
+        // finicky.d.ts declaring the argument as a bare WHATWG URL. Verified by
+        // routing: /issue/... reaches Linear while /pricing falls through to
+        // Chrome, which only happens if this destructure works. If a future
+        // Finicky drops the wrapper this throws, and the symptom is every
+        // Linear link opening in Chrome — switch to a bare `url` parameter then.
+        if (url.host !== "linear.app" && url.host !== "www.linear.app") {
+          return false;
+        }
+        // Second path segment of an in-app route:
+        // https://linear.app/<workspace>/<route>/...
         const [, route] = url.pathname.replace(/^\//, "").split("/");
-        return appRoutes.includes(route);
+        return [
+          "issue", "project", "projects", "initiative", "initiatives", "team",
+          "view", "document", "search", "settings", "inbox", "my-issues",
+          "roadmap", "cycle", "label", "profile", "notification",
+        ].includes(route);
       },
       browser: { name: "Linear", appType: "appName" },
-      // This rewrite is a DEAD NO-OP, kept because the resulting behaviour is
-      // the one we want: Linear receives the original https URL and applies its
-      // own routing. Two v4 API traps defeat it, both silently — the argument
-      // is a WHATWG URL instance (not a { url } wrapper, so this destructure
-      // yields undefined) and a handler has no `url` field at all (rewrites
-      // belong in a top-level `rewrite` array). Don't "fix" it without
-      // re-testing; a working linear:// rewrite routes worse.
-      url: ({ url }) => ({ ...url, protocol: "linear" }),
     },
+    // ---8<--- end Linear carve-out.
   ],
 };

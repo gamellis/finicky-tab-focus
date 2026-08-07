@@ -1,0 +1,5 @@
+.DS_Store
+*.bak
+
+# Built by install-chrome-tab-focus.sh, never committed.
+ChromeTabFocus.app/
