@@ -49,6 +49,15 @@ fi
 
 if [ -d "$APP" ]; then
   ok "applet built"
+  # An applet built before local-file support claims no document types, and the
+  # symptom is specific: `open page.html` puts up "cannot open files in the
+  # 'HTML text' format" while web links keep working.
+  if plutil -p "$APP/Contents/Info.plist" 2>/dev/null | grep -q 'public\.html'; then
+    ok "applet handles local HTML files"
+  else
+    bad "applet predates local HTML file support" \
+        "Run ./install-chrome-tab-focus.sh to rebuild it."
+  fi
 else
   bad "no applet at $APP" "Run ./install-chrome-tab-focus.sh"
 fi

@@ -10,6 +10,39 @@ on open location this_URL
 	my focusOrOpen(this_URL)
 end open location
 
+-- Files, not URLs. Because Finicky is the default handler for public.html, a
+-- plain `open page.html` reaches Finicky, which hands the *file* to the default
+-- browser — us. Without this handler (and the matching CFBundleDocumentTypes in
+-- the installer) macOS refuses with "ChromeTabFocus cannot open files in the
+-- 'HTML text' format" and the page never opens.
+on open theFiles
+	repeat with f in theFiles
+		my focusOrOpen(my fileURLFor(POSIX path of f))
+	end repeat
+end open
+
+-- POSIX path -> file:// URL. Chrome reports tab URLs percent-encoded, so the
+-- encoding has to match or every open makes a duplicate tab instead of
+-- focusing the existing one.
+on fileURLFor(posixPath)
+	set unreserved to "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/"
+	set out to ""
+	repeat with i from 1 to (count of posixPath)
+		set c to character i of posixPath
+		if unreserved contains c then
+			set out to out & c
+		else
+			-- `od` rather than AppleScript's `id of c`: multi-byte characters are
+			-- one AppleScript character but several percent-encoded UTF-8 bytes.
+			set hexBytes to do shell script "printf %s " & quoted form of c & " | od -An -tx1"
+			repeat with b in words of hexBytes
+				set out to out & "%" & b
+			end repeat
+		end if
+	end repeat
+	return "file://" & out
+end fileURLFor
+
 on run argv
 	if class of argv is list and (count of argv) > 0 then
 		my focusOrOpen(item 1 of argv)

@@ -10,6 +10,10 @@ link from every app.
 
 Linear links are the one exception: they open in the Linear desktop app.
 
+Local pages work the same way: `open page.html` in a terminal, or double-clicking
+an HTML file in Finder, opens it in Chrome as a `file://` URL and reuses the tab
+if that file is already open.
+
 > **This sees every URL you open.** It has to — it becomes your default browser
 > handler. Everything happens locally: nothing is sent anywhere, nothing is
 > logged, and there is no network code in this repo. The one exception is opt-in
