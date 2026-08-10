@@ -41,18 +41,22 @@ on fileURLFor(posixPath)
 	return "file://" & ((s's stringByAddingPercentEncodingWithAllowedCharacters:allowed) as text)
 end fileURLFor
 
--- Percent-decode, for comparing two file: URLs that may not be spelled the same
--- way. Load-bearing, not just insurance against Chromium's escaping rule
--- drifting: `POSIX path of` hands us the filesystem representation, which is
--- NFD, while a tab Chrome opened from Finder carries the NFC form on disk.
--- "caf%C3%A9" and "cafe%CC%81" are different strings, but decoded they are the
--- same text, and AppleScript compares text normalized. Returns the input
--- unchanged if it isn't decodable.
+-- Decode and normalize a file: URL into something two spellings of the same
+-- path both reduce to. Load-bearing, not just insurance against Chromium's
+-- escaping rule drifting: `POSIX path of` hands us the filesystem
+-- representation, which is NFD, while a tab Chrome opened from Finder carries
+-- the NFC form from disk. "caf%C3%A9" and "cafe%CC%81" are different strings.
+--
+-- Decoding alone already matches them today, but only by accident: coercing an
+-- NSString to AppleScript text composes it (the NSString here is length 20, the
+-- coerced text 19). Composing explicitly says so, and keeps the match from
+-- resting on an undocumented property of a type coercion two lines up.
+-- Returns the input unchanged if it isn't decodable.
 on decodedURL(u)
 	set s to current application's NSString's stringWithString:u
 	set d to s's stringByRemovingPercentEncoding()
 	if d is missing value then return u
-	return d as text
+	return (d's precomposedStringWithCanonicalMapping()) as text
 end decodedURL
 
 on run argv
