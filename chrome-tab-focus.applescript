@@ -6,6 +6,11 @@
 -- reuses the warm process instead of paying an app launch. LSUIElement keeps it
 -- out of the Dock, so focus never visibly leaves the app you clicked from.
 
+-- Foundation is here for percent-encoding only. Loading it costs ~130ms, paid
+-- once at launch rather than per URL because the applet stays open.
+use framework "Foundation"
+use scripting additions
+
 on open location this_URL
 	my focusOrOpen(this_URL)
 end open location
@@ -21,27 +26,34 @@ on open theFiles
 	end repeat
 end open
 
--- POSIX path -> file:// URL. Chrome reports tab URLs percent-encoded, so the
--- encoding has to match or every open makes a duplicate tab instead of
--- focusing the existing one.
+-- POSIX path -> file:// URL, encoded the way Chrome encodes one. Chrome leaves
+-- most punctuation literal and escapes only space, non-ASCII, and # ; ? % { }
+-- (and the rest of the unsafe set). Escaping more than that is not merely ugly
+-- in the URL bar: a tab Chrome opened itself, from Finder or a link, carries
+-- Chrome's spelling, and a string that doesn't match it opens a duplicate.
+--
+-- Deliberately not NSURL's fileURLWithPath: its absoluteString escapes [ and ]
+-- where Chrome leaves them literal, so it is not the rule we need to match.
 on fileURLFor(posixPath)
-	set unreserved to "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/"
-	set out to ""
-	repeat with i from 1 to (count of posixPath)
-		set c to character i of posixPath
-		if unreserved contains c then
-			set out to out & c
-		else
-			-- `od` rather than AppleScript's `id of c`: multi-byte characters are
-			-- one AppleScript character but several percent-encoded UTF-8 bytes.
-			set hexBytes to do shell script "printf %s " & quoted form of c & " | od -An -tx1"
-			repeat with b in words of hexBytes
-				set out to out & "%" & b
-			end repeat
-		end if
-	end repeat
-	return "file://" & out
+	set allowed to current application's NSCharacterSet's ¬
+		characterSetWithCharactersInString:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,/:=@[]"
+	set s to current application's NSString's stringWithString:posixPath
+	return "file://" & ((s's stringByAddingPercentEncodingWithAllowedCharacters:allowed) as text)
 end fileURLFor
+
+-- Percent-decode, for comparing two file: URLs that may not be spelled the same
+-- way. Load-bearing, not just insurance against Chromium's escaping rule
+-- drifting: `POSIX path of` hands us the filesystem representation, which is
+-- NFD, while a tab Chrome opened from Finder carries the NFC form on disk.
+-- "caf%C3%A9" and "cafe%CC%81" are different strings, but decoded they are the
+-- same text, and AppleScript compares text normalized. Returns the input
+-- unchanged if it isn't decodable.
+on decodedURL(u)
+	set s to current application's NSString's stringWithString:u
+	set d to s's stringByRemovingPercentEncoding()
+	if d is missing value then return u
+	return d as text
+end decodedURL
 
 on run argv
 	if class of argv is list and (count of argv) > 0 then
@@ -61,6 +73,11 @@ end normalizeURL
 
 on focusOrOpen(theURL)
 	set wanted to my normalizeURL(theURL)
+	-- file: URLs compare decoded, so two spellings of the same path still match.
+	-- Only file: URLs: decoding every tab URL would add a bridged call per tab,
+	-- and for http the string Chrome reports is already the string we were given.
+	set wantIsFile to wanted starts with "file:"
+	if wantIsFile then set wanted to my decodedURL(wanted)
 	tell application "Google Chrome"
 		-- One Apple event per window rather than one per tab: with many tabs
 		-- open, per-tab round trips dominate the whole operation.
@@ -68,7 +85,10 @@ on focusOrOpen(theURL)
 		repeat with wi from 1 to winCount
 			set tabURLs to URL of every tab of window wi
 			repeat with ti from 1 to (count of tabURLs)
-				if my normalizeURL(item ti of tabURLs) is wanted then
+				set tabURL to my normalizeURL(item ti of tabURLs)
+				if wantIsFile and tabURL starts with "file:" then ¬
+					set tabURL to my decodedURL(tabURL)
+				if tabURL is wanted then
 					-- KNOWN LIMITATION: this does not deminiaturize. If the
 					-- matching tab lives in a minimized window, the click looks
 					-- like it did nothing at all. Confirmed, deliberately not
