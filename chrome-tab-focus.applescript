@@ -41,22 +41,34 @@ on fileURLFor(posixPath)
 	return "file://" & ((s's stringByAddingPercentEncodingWithAllowedCharacters:allowed) as text)
 end fileURLFor
 
--- Decode and normalize a file: URL into something two spellings of the same
--- path both reduce to. Load-bearing, not just insurance against Chromium's
--- escaping rule drifting: `POSIX path of` hands us the filesystem
--- representation, which is NFD, while a tab Chrome opened from Finder carries
--- the NFC form from disk. "caf%C3%A9" and "cafe%CC%81" are different strings.
+-- Decode and normalize only the path of a file: URL into something two
+-- spellings of the same path both reduce to. The component boundary matters:
+-- "%23" in a path names a literal #, while an unescaped # starts a fragment
+-- (and likewise for "%3F" and a query). Decoding the whole URL would collapse
+-- those distinct resources.
 --
--- Decoding alone already matches them today, but only by accident: coercing an
--- NSString to AppleScript text composes it (the NSString here is length 20, the
--- coerced text 19). Composing explicitly says so, and keeps the match from
--- resting on an undocumented property of a type coercion two lines up.
--- Returns the input unchanged if it isn't decodable.
+-- `POSIX path of` hands us the filesystem representation, which is NFD, while
+-- a tab Chrome opened from Finder carries the NFC form from disk. Composing the
+-- decoded path explicitly makes "caf%C3%A9" and "cafe%CC%81" compare equal.
+-- Re-encoding it before rebuilding the URL protects the query and fragment
+-- delimiters. Returns the input unchanged if it isn't parseable or decodable.
 on decodedURL(u)
 	set s to current application's NSString's stringWithString:u
-	set d to s's stringByRemovingPercentEncoding()
+	set components to current application's NSURLComponents's componentsWithString:s
+	if components is missing value then return u
+	set encodedPath to components's percentEncodedPath()
+	set d to encodedPath's stringByRemovingPercentEncoding()
 	if d is missing value then return u
-	return (d's precomposedStringWithCanonicalMapping()) as text
+	set normalizedPath to d's precomposedStringWithCanonicalMapping()
+	-- Keep / literal, but escape #, ? and % so path data cannot become URL
+	-- structure when NSURLComponents rebuilds the string.
+	set pathAllowed to current application's NSCharacterSet's ¬
+		characterSetWithCharactersInString:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,/:=@[]"
+	set encodedNormalizedPath to normalizedPath's ¬
+		stringByAddingPercentEncodingWithAllowedCharacters:pathAllowed
+	if encodedNormalizedPath is missing value then return u
+	components's setPercentEncodedPath:encodedNormalizedPath
+	return (components's |string|()) as text
 end decodedURL
 
 on run argv
