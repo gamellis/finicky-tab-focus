@@ -11,8 +11,16 @@ fails=0
 ok()   { echo "  ok    $1"; }
 bad()  { echo "  FAIL  $1"; echo "        $2"; fails=$((fails + 1)); }
 
+REBUILD="Run ./install-chrome-tab-focus.sh to rebuild it."
+
 app_path() {
   osascript -e "POSIX path of (path to application id \"$1\")" 2>/dev/null
+}
+
+# One key path out of the applet's Info.plist. Empty when the key is absent, so
+# "never claimed" stays distinguishable from "claimed something else".
+plist_at() {
+  plutil -extract "$1" "${2:-json}" -o - -- "$APP/Contents/Info.plist" 2>/dev/null
 }
 
 echo "Checking..."
@@ -49,6 +57,32 @@ fi
 
 if [ -d "$APP" ]; then
   ok "applet built"
+  # An applet built before local-file support claims no document types, and the
+  # symptom is specific: `open page.html` puts up "cannot open files in the
+  # 'HTML text' format" while web links keep working. Check the exact keys
+  # LaunchServices reads, not the plist as text: an applet that merely mentions
+  # public.html somewhere — in a type name, or an inherited UTI declaration —
+  # would pass a substring match while still refusing every file.
+  if plist_at "CFBundleDocumentTypes.0.LSItemContentTypes" | grep -q '"public\.html"'; then
+    ok "applet claims local HTML files"
+  else
+    bad "applet predates local HTML file support" "$REBUILD"
+  fi
+
+  # Rank None means "never offer this app", which silently undoes that claim.
+  if [ "$(plist_at CFBundleDocumentTypes.0.LSHandlerRank)" = '"None"' ]; then
+    bad "applet's LSHandlerRank is None" "$REBUILD"
+  fi
+
+  # The plist is only a promise. Without an `on open` handler in the compiled
+  # script the document event goes unanswered and times out, which looks exactly
+  # like the click doing nothing. osacompile names the executable `droplet`
+  # rather than `applet` when such a handler is present.
+  if [ "$(plist_at CFBundleExecutable raw)" = "droplet" ]; then
+    ok "applet accepts document events"
+  else
+    bad "applet has no open-documents handler" "$REBUILD"
+  fi
 else
   bad "no applet at $APP" "Run ./install-chrome-tab-focus.sh"
 fi

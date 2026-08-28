@@ -35,7 +35,18 @@ osacompile -s -o "$APP" "$SRC"
 
 plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$PLIST"
 plutil -replace CFBundleURLTypes \
-  -json '[{"CFBundleURLName":"Web","CFBundleURLSchemes":["http","https"]}]' "$PLIST"
+  -json '[{"CFBundleURLName":"Web","CFBundleURLSchemes":["http","https","file"]}]' "$PLIST"
+# Local pages arrive as documents, not URLs: Finicky is the default handler for
+# public.html, so `open page.html` reaches Finicky, which hands the file to the
+# default browser — us. Without this claim macOS refuses the handoff with
+# "ChromeTabFocus cannot open files in the 'HTML text' format".
+#
+# Rank Alternate, not Default: this app should never become the app Finder
+# shows for .html files, only a legal destination once Finicky picks it.
+plutil -replace CFBundleDocumentTypes \
+  -json '[{"CFBundleTypeName":"Web page","CFBundleTypeRole":"Viewer",
+           "LSHandlerRank":"Alternate",
+           "LSItemContentTypes":["public.html","public.xhtml"]}]' "$PLIST"
 plutil -replace NSAppleEventsUsageDescription \
   -string "Focus an existing Chrome tab." "$PLIST"
 # Agent app: no Dock icon, no app switch when handling a URL.

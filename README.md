@@ -10,6 +10,10 @@ link from every app.
 
 Linear links are the one exception: they open in the Linear desktop app.
 
+Local pages work the same way: `open page.html` in a terminal, or double-clicking
+an HTML file in Finder, opens it in Chrome as a `file://` URL and reuses the tab
+if that file is already open.
+
 > **This sees every URL you open.** It has to — it becomes your default browser
 > handler. Everything happens locally: nothing is sent anywhere, nothing is
 > logged, and there is no network code in this repo. The one exception is opt-in
@@ -87,8 +91,9 @@ was obvious", not as a benchmark.
   no tab-URL scripting at all, so it could never participate.
 - **Links clicked inside an app that opens its own webview never reach
   Finicky**, so they can't be deduplicated.
-- **URLs must match exactly** (modulo trailing slash). Query strings, tracking
-  params and anchors all count as different tabs.
+- **URLs must match exactly** (modulo trailing slash, and percent-encoding for
+  `file:` URLs). Query strings, tracking params and anchors all count as
+  different tabs.
 - The applet accepts a URL from **any** app, not just Finicky. Nothing is
   passed to a shell, so there's no injection surface; an unusual scheme just
   lands in a new blank tab.
